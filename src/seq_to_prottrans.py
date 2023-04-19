@@ -19,7 +19,7 @@ import tqdm
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 print("Using device: {}".format(device))
 
-def get_T5_model(model_dir, transformer_link = "Rostlab/prot_t5_xl_half_uniref50-enc"):
+def get_T5_model(model_dir, transformer_link = "Rostlab/prot_t5_xl_uniref50"):
     print("Loading: {}".format(transformer_link))
     if model_dir is not None:
         print("##########################")
