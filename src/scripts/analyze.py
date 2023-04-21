@@ -14,16 +14,10 @@ def create_argparser():
     return parser
 
 
-def draw_loss(file, fig):
-    pattern = re.compile(r'(?P<batch>[0-9]+)_(?P<epoch>[0-9]+)_train_loss')
+def draw_loss(file, fig, batch, epochs):
     fig, ax = plt.subplots()
     print(file.keys())
-    for key in file.keys():
-        m = pattern.match(key)
-        if not m or m['batch'] != '0':
-            continue
-        batch = m['batch']
-        epoch = m['epoch']
+    for epoch in range(epochs):
         loss = file[f'{batch}_{epoch}_train_loss']
         loss_x = np.arange(len(loss.size[0]))
         y_true = file[f'{batch}_{epoch}_train_y_true']

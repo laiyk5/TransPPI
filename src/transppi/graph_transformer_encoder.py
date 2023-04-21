@@ -5,11 +5,10 @@ from .misc import Normalize
 from .misc import gather_nodes
 
 class NeighborAttention(nn.Module):
-    def __init__(self, dim_hidden, dim_in, num_heads=4, device=torch.device('cpu')):
+    def __init__(self, dim_hidden, dim_in, num_heads=4):
         super(NeighborAttention, self).__init__()
         self.num_heads = num_heads
         self.dim_hidden = dim_hidden
-        self.device = device
 
         # Self-attention layers: {queries, keys, values, output}
         self.W_Q = nn.Linear(dim_hidden, dim_hidden, bias=False)
@@ -20,7 +19,7 @@ class NeighborAttention(nn.Module):
     def _masked_softmax(self, attend_logits, mask_attend, dim=-1):
         """ Numerically stable masked softmax """
         negative_inf = np.finfo(np.float32).min
-        attend_logits = torch.where(mask_attend > 0, attend_logits, torch.tensor(negative_inf).to(self.device))
+        attend_logits = torch.where(mask_attend > 0, attend_logits, torch.tensor(negative_inf).to(attend_logits.device))
         attend = nn.functional.softmax(attend_logits, dim) # TODO softmax before mask?
         attend = mask_attend * attend
         return attend
@@ -78,12 +77,12 @@ class PositionWiseFeedForward(nn.Module):
 
 
 class GraphTransformerEncoderLayer(nn.Module):
-    def __init__(self, dim_hidden, dim_in, num_heads=4, dropout=0.2, device=torch.device('cpu')):
+    def __init__(self, dim_hidden, dim_in, num_heads=4, dropout=0.2):
         super().__init__()
         self.dropout = nn.Dropout(dropout)
         self.norm = nn.ModuleList([Normalize(dim_hidden) for _ in range(2)])
 
-        self.attention = NeighborAttention(dim_hidden, dim_in, num_heads, device=device)
+        self.attention = NeighborAttention(dim_hidden, dim_in, num_heads)
         self.dense = PositionWiseFeedForward(dim_hidden, dim_hidden * 4)
 
     def forward(self, h_V, h_E, mask_attend=None):
@@ -107,10 +106,10 @@ class GraphTransformerEncoderLayer(nn.Module):
 
 
 class GraphTransformerEncoder(nn.Module):
-    def __init__(self, dim_hidden, num_layer=4, device=torch.device('cpu')):
+    def __init__(self, dim_hidden, num_layer=4):
         super().__init__()
         self.layers = nn.ModuleList([
-            GraphTransformerEncoderLayer(dim_hidden, dim_hidden*2, device=device)
+            GraphTransformerEncoderLayer(dim_hidden, dim_hidden*2)
             for _ in range(num_layer)
         ])
     

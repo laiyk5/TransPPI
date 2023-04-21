@@ -12,21 +12,21 @@ from .misc import gather_nodes, Normalize
 
 
 class PositionalEncodings(nn.Module):
-    def __init__(self, num_embeddings, device=torch.device('cpu')):
+    def __init__(self, num_embeddings):
         super(PositionalEncodings, self).__init__()
         self.num_embeddings = num_embeddings
-        self.device = device
 
     def forward(self, E_idx):
         # i-j
+        device = E_idx.device
         N_nodes = E_idx.size(-2)
         N_neighbors = E_idx.size(-1)
-        ii = torch.arange(N_nodes, dtype=torch.float32).view([1]*(len(E_idx.shape)-2) + [-1, 1]).to(self.device)
+        ii = torch.arange(N_nodes, dtype=torch.float32).view([1]*(len(E_idx.shape)-2) + [-1, 1]).to(device)
         d = (E_idx.float() - ii).unsqueeze(-1)
         # Original Transformer frequencies
         frequency = torch.exp(
             torch.arange(0, self.num_embeddings, 2, dtype=torch.float32)
-            * -(np.log(10000.0) / self.num_embeddings)).to(self.device)
+            * -(np.log(10000.0) / self.num_embeddings)).to(device)
 
         angles = d * frequency.view((1,1,1,-1))
         E = torch.cat((torch.cos(angles), torch.sin(angles)), -1)
@@ -35,15 +35,14 @@ class PositionalEncodings(nn.Module):
 
 class EdgeEncoder(nn.Module):
     def __init__(self, dim_edge_features, num_positional_embeddings=16,
-        num_rbf=16, dim_neighbor=30, augment_eps=0., device=torch.device('cpu')):
+        num_rbf=16, dim_neighbor=30, augment_eps=0.):
         super().__init__()
         self.dim_neighbor = dim_neighbor
         self.augment_eps = augment_eps 
         self.num_rbf = num_rbf
-        self.device = device
 
         # Positional encoding
-        self.PE = PositionalEncodings(num_positional_embeddings, device=self.device)
+        self.PE = PositionalEncodings(num_positional_embeddings)
         
         # Embedding and normalization
         self.edge_embedding = nn.Linear(num_positional_embeddings + num_rbf + 7, dim_edge_features, bias=True)
@@ -71,7 +70,7 @@ class EdgeEncoder(nn.Module):
         '''
         # Distance radial basis function
         D_min, D_max, D_count = 0., 20., self.num_rbf
-        D_mu = torch.linspace(D_min, D_max, D_count).to(self.device) # [D_count]
+        D_mu = torch.linspace(D_min, D_max, D_count).to(D.device) # [D_count]
         D_mu = D_mu.view([1]*(len(D.shape)-1) + [D_count])
         D_sigma = (D_max - D_min) / D_count
         D_expand = torch.unsqueeze(D, -1)

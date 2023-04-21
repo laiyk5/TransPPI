@@ -18,6 +18,7 @@ import argparse
 import sys
 import os
 from datetime import datetime
+import random
 
 
 class TaskDataset(Dataset):
@@ -87,6 +88,12 @@ class TaskDataset(Dataset):
 class Trainer:
     def __init__(self, args):
         self.seed_everything(args.random_state)
+        self.args = args
+        self.out_dir = args.out_dir
+
+        # prepare the device to run on.
+        assert torch.cuda.is_available(), "Cuda is not available."
+        self.device = torch.device(f'cuda:{args.gpu}')
 
         # prepare the output files.
         os.makedirs(args.out_dir, exist_ok=True)
@@ -98,13 +105,11 @@ class Trainer:
         self.ppi_dataset = get_ppi_dataset(args.ppi_dir)
         self.coord_dataset = h5py.File(args.coord, 'r')
         self.prottrans_dataset = h5py.File(args.prottrans, 'r')
-        self.ppi_dataset_y = [label for _, _, label in self.ppi_dataset]
-
-        # prepare the device to run on.
-        self.device = torch.device(f'cuda:{args.gpu}' if torch.cuda.is_available() else 'cpu')
 
     def seed_everything(self, seed):
         torch.manual_seed(seed)
+        random.seed(seed)
+        np.random.seed(seed)
         return
 
     def main(self):
@@ -158,41 +163,49 @@ class Trainer:
 
 
     def train_kfold(self, args):
-        skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=args.random_state)
+        random.shuffle(self.ppi_dataset)
+        self.ppi_dataset_y = [label for _, _, label in self.ppi_dataset]
+        skf = StratifiedKFold(n_splits=10, shuffle=False)
         for fold, (train_index, test_index) in enumerate(skf.split(np.zeros(len(self.ppi_dataset_y)), self.ppi_dataset_y)):
             train_ppi_dataset = [self.ppi_dataset[index] for index in train_index]
             test_ppi_dataset = [self.ppi_dataset[index] for index in test_index]
             
             train_task_dataset = TaskDataset(train_ppi_dataset, self.coord_dataset, self.prottrans_dataset)
-            train_dataloader = DataLoader(train_task_dataset, shuffle=True, batch_size=args.batch_size, collate_fn=train_task_dataset.collate_fn)
+            train_dataloader = DataLoader(train_task_dataset, shuffle=False, batch_size=args.batch_size, collate_fn=train_task_dataset.collate_fn)
 
             validate_task_dataset = TaskDataset(test_ppi_dataset, self.coord_dataset, self.prottrans_dataset) 
-            validate_dataloader = DataLoader(validate_task_dataset, shuffle=True, batch_size=args.batch_size, collate_fn=train_task_dataset.collate_fn)
+            validate_dataloader = DataLoader(validate_task_dataset, shuffle=False, batch_size=args.batch_size * 4, collate_fn=train_task_dataset.collate_fn)
 
-            model = PPITransformer(args.dim_edge_feat, args.dim_vertex_feat, args.dim_hidden, device=self.device).to(self.device)
+            model = PPITransformer(args.dim_edge_feat, args.dim_vertex_feat, args.dim_hidden).to(self.device)
             
             optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer, mode='max', patience=5, verbose=True)
+            # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer, mode='max', patience=5, verbose=True)
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer=optimizer, T_0=200)
 
             for epoch in range(args.epochs):
-                y_true, y_score, loss = self.train(model, train_dataloader, optimizer)
-                self.log_metrics(y_true, y_score, args.out_dir, out_prefix=f'{fold}_{epoch}_train_')
-                self.log_loss(loss, args.out_dir, f'{fold}_{epoch}_train_')
-
-                y_true, y_score = self.validate(model, validate_dataloader)
-                self.log_metrics(y_true, y_score, args.out_dir, out_prefix=f'{fold}_{epoch}_validate_')
-
-                self.res_file.create_dataset(f'{fold}_{epoch}_y_true', data=y_true)
-                self.res_file.create_dataset(f'{fold}_{epoch}_y_score', data=y_score)
-                self.res_file.create_dataset(f'{fold}_{epoch}_loss', data=loss)
-                
-                auroc = metrics.roc_auc_score(y_true, y_score)
-                scheduler.step(auroc)
+                self.train_and_log(model, train_dataloader, optimizer, scheduler, f'{fold}_{epoch}_train_')
+                self.validate_and_log(model, validate_dataloader, out_prefix=f'{fold}_{epoch}_validate_')
+                # scheduler.step(auroc)
 
             torch.save(model, os.path.join(args.out_dir, f'{fold}_model.pth'))
 
+    def train_and_log(self, model, dataloader, optimizer, scheduler, out_prefix=''):
+        y_true, y_score, loss = self.train(model, dataloader, optimizer, scheduler)
+        self.log_metrics(y_true, y_score, self.out_dir, out_prefix=out_prefix)
+        self.log_loss(loss, self.out_dir, out_prefix=out_prefix)
+        self.res_file.create_dataset(out_prefix + '_y_true', data=y_true)
+        self.res_file.create_dataset(out_prefix + '_y_score', data=y_score)
+        self.res_file.create_dataset(out_prefix + '_loss', data=loss)
 
-    def train(self, model: torch.nn.Module, dataloader: DataLoader, optimizer:torch.optim.Optimizer):
+    def validate_and_log(self, model, dataloader, out_prefix):
+        y_true, y_score = self.validate(model, dataloader)
+        self.log_metrics(y_true, y_score, args.out_dir, out_prefix=out_prefix)
+        self.res_file.create_dataset(out_prefix + '_y_true', data=y_true)
+        self.res_file.create_dataset(out_prefix + '_y_score', data=y_score)
+        auroc = metrics.roc_auc_score(y_true, y_score)
+        return auroc
+
+    def train(self, model: torch.nn.Module, dataloader: DataLoader, optimizer:torch.optim.Optimizer, scheduler:torch.optim.lr_scheduler.LRScheduler):
         model.train()
         loss_func = torch.nn.BCEWithLogitsLoss().to(self.device)
 
@@ -211,6 +224,7 @@ class Trainer:
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            scheduler.step()
             
             # store the raw data.
             y_score = y_score_gpu.squeeze(-1).detach().cpu()
@@ -220,11 +234,12 @@ class Trainer:
 
             # update description of progress bar.
             loss_avg = (loss_avg * i + loss) / (i+1)
-            progress_bar.set_description(f"loss: {loss}, loss_avg: {loss_avg}")
+            progress_bar.set_description(f"loss: {loss}, loss_avg: {loss_avg}, lr:{scheduler.get_last_lr()}")
             
         return all_y_true, all_y_score, all_loss
 
 
+    @ torch.no_grad()
     def validate(self, model: torch.nn.Module, dataloader: DataLoader):
         model.eval()
 
@@ -249,22 +264,22 @@ class Trainer:
 def create_arg_parser():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--dim_vertex_feat', default=1024)
-    parser.add_argument('--dim_edge_feat', default=64)
-    parser.add_argument('--dim_hidden', default=128)
+    parser.add_argument('--dim_vertex_feat', type=int, default=1024)
+    parser.add_argument('--dim_edge_feat', type=int, default=64)
+    parser.add_argument('--dim_hidden', type=int, default=128)
 
     parser.add_argument('--ppi_dir', default='data/ppi/Profppikernel')
     parser.add_argument('--coord', default='data/coord.hdf5')
     parser.add_argument('--prottrans', default='data/prottrans.hdf5')
     
     parser.add_argument('--random_state', default=2023)
-    parser.add_argument('--batch_size', default=4)
-    parser.add_argument('--epochs', default=50)
-    parser.add_argument('--lr', default=5e-4)
+    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--lr', type=float, default=5e-4)
 
     parser.add_argument('--out_dir', default=os.path.join('out', 'train', datetime.now().strftime("%y-%m-%d-%H-%M") ))
 
-    parser.add_argument('--gpu', default=0)
+    parser.add_argument('--gpu', type=int, default=0)
 
     return parser  
 

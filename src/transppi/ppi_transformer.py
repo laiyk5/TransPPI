@@ -8,13 +8,12 @@ class ProteinEncoder(nn.Module):
     '''
     Encode proteins represented by (vertex_coord, vertex_feat, len)
     '''
-    def __init__(self, dim_edge_feat, dim_vertex_feat, dim_hidden, device=torch.device('cpu')):
+    def __init__(self, dim_edge_feat, dim_vertex_feat, dim_hidden):
         super().__init__()
-        self.edge_encoder = EdgeEncoder(dim_edge_feat, device=device)
+        self.edge_encoder = EdgeEncoder(dim_edge_feat)
         self.edge_linear = nn.Linear(dim_edge_feat, dim_hidden)
         self.vertex_linear = nn.Linear(dim_vertex_feat, dim_hidden)
-        self.graph_transforemer_encoder = GraphTransformerEncoder(dim_hidden, device=device)
-        self.device = device
+        self.graph_transforemer_encoder = GraphTransformerEncoder(dim_hidden)
 
     def forward(self, vertex_coord, vertex_feat, protein_length):
         '''
@@ -29,7 +28,7 @@ class ProteinEncoder(nn.Module):
         dim_vertex = vertex_feat.shape[-2]
         dim_vertex_2 = vertex_coord.shape[-2]
         assert dim_vertex == dim_vertex_2, "dim_vertex inconsistent"
-        index = torch.arange(dim_vertex).to(self.device)
+        index = torch.arange(dim_vertex).to(vertex_coord.device)
         mask = (index < protein_length) # [..., dim_vertex], boolean matrix
 
         edge_feat, neighbor_idx = self.edge_encoder(vertex_coord, mask.float())
@@ -47,13 +46,12 @@ class ProteinEncoder(nn.Module):
     
 
 class PPITransformer(nn.Module):
-    def __init__(self, dim_edge_feat, dim_vertex_feat, dim_hidden, device=torch.device('cpu')):
+    def __init__(self, dim_edge_feat, dim_vertex_feat, dim_hidden):
         super().__init__()
-        self.protein_encoder = ProteinEncoder(dim_edge_feat=dim_edge_feat, dim_vertex_feat=dim_vertex_feat, dim_hidden=dim_hidden, device=device)
+        self.protein_encoder = ProteinEncoder(dim_edge_feat=dim_edge_feat, dim_vertex_feat=dim_vertex_feat, dim_hidden=dim_hidden)
         dim_mid = int(dim_hidden/2) + 1
         self.out_layer1 = nn.Linear(in_features=dim_hidden, out_features=dim_mid)
         self.out_layer2 = nn.Linear(in_features=dim_mid, out_features=1)
-        self.device = device
     
     def forward(self, vertex_coords, vertex_feats, protein_length):
         '''
