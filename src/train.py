@@ -82,8 +82,102 @@ class TaskDataset(Dataset):
 
 
 
+class Logger:
+    def __init__(self, out_dir, fold, prefix):
+        self.out_dir = out_dir
+        self.fold = fold
+        self.prefix = prefix
+        
+        prefix_fold = prefix + f'{self.fold}_'
+        self.metric_logfile = open(os.path.join(self.out_dir, prefix_fold + 'metrics.log'), 'w')
+        self.resfile = h5py.File(os.path.join(self.out_dir, prefix_fold + 'resfile.hdf5'), 'w')
 
+        self.auroc = []
+        self.auprc = []
+        self.precision = []
+        self.recall = []
+        self.f1_score = []
+        self.loss = []
 
+    # draw destribution
+    def _draw_distribution(self, y_true, y_score, ax):
+        y_score_neg = [y_score[i] for i in 
+                        filter(lambda i : y_true[i] == 0, range(len(y_score)))]
+        y_score_pos = [y_score[i] for i in 
+                        filter(lambda i : y_true[i] == 1, range(len(y_score)))]
+        # sns.histplot(y_score_neg, color='red', kde=True, ax=ax)
+        # sns.histplot(y_score_pos, color='green', kde=True, ax=ax)
+        sns.kdeplot(y_score_neg, color='red', ax=ax)
+        sns.kdeplot(y_score_pos, color='green', ax=ax)
+
+    def step_metrics(self, epoch, y_true, y_score):
+        prefix_fold = self.prefix + f'{self.fold}_'
+        prefix_fold_epoch = prefix_fold + f'{epoch}_'
+
+        self.resfile.create_dataset(prefix_fold_epoch + 'y_true', data=y_true)
+        self.resfile.create_dataset(prefix_fold_epoch + 'y_score', data=y_score)
+
+        # draw prc roc
+        fpr, tpr, thredsholds = metrics.roc_curve(y_true, y_score)
+        precisions, recalls, thredsholds = metrics.precision_recall_curve(y_true, y_score)
+
+        fig, axes = plt.subplots(nrows=2, ncols=2)
+        axes[0,0].plot(recalls, precisions)
+        axes[0,1].plot(fpr, tpr)
+        self._draw_distribution(y_true, y_score, ax=axes[1,0])
+        fig.savefig(os.path.join(self.out_dir, prefix_fold_epoch + 'prc_roc_kde.png'), dpi=200)
+        plt.close(fig)
+
+        # save log auroc, auprc, precision, recall, f1_score
+        auroc = metrics.auc(fpr, tpr)
+        auprc = metrics.auc(recalls, precisions)
+        precisions = np.array(precisions)
+        recalls = np.array(recalls)
+        f1_scores = 2 * precisions * recalls / (precisions + recalls + 1e-20)
+        idx = np.argmax(f1_scores)
+        precision, recall, f1_scores = precisions[idx], recalls[idx], f1_scores[idx]
+
+        self.metric_logfile.write('[' + prefix_fold_epoch + ']' + f"auroc={auroc}, auprc={auprc}, precision={precision}, recall={recall}, f1_scores={f1_scores}\n")
+        self.metric_logfile.flush()
+
+        # Update Trend
+        self.auroc.append(auroc)
+        self.auprc.append(auprc)
+        self.precision.append(precision)
+        self.recall.append(recall)
+        self.f1_score.append(f1_scores)
+
+        fig, axes = plt.subplots(nrows=2, ncols=3)
+        axes[0,0].set_title("AUROC")
+        axes[0,1].set_title("AURPC")
+        axes[0,2].set_title("F1_score")
+        axes[1,0].set_title("Precision")
+        axes[1,1].set_title("Recall")
+        
+        sns.lineplot(self.auroc, ax=axes[0,0])
+        sns.lineplot(self.auprc, ax=axes[0,1])
+        sns.lineplot(self.f1_score, ax=axes[0,2])
+        sns.lineplot(self.precision, ax=axes[1,0])
+        sns.lineplot(self.recall, ax=axes[1,1])
+
+        fig.savefig(os.path.join(self.out_dir, self.prefix + 'metrics.png'), dpi=200)
+        plt.close(fig)
+
+    def step_loss(self, epoch, loss):
+        prefix_fold = self.prefix + f'{self.fold}_'
+        prefix_fold_epoch = prefix_fold + f'{epoch}_'
+        self.resfile.create_dataset(prefix_fold_epoch + 'loss', data=loss)
+
+        self.loss += loss
+        fig, ax = plt.subplots()
+        loss_mean = np.mean(loss)
+        loss_var = np.var(loss)
+        sns.lineplot(self.loss, ax=ax)
+        ax.text(x=10, y=10, s=f"mean={loss_mean}, var={loss_var}")
+        fig.savefig(os.path.join(self.out_dir, prefix_fold + f'loss.png'), dpi=200)
+        plt.close(fig)
+
+    
 
 class Trainer:
     def __init__(self, args):
@@ -95,11 +189,10 @@ class Trainer:
         assert torch.cuda.is_available(), "Cuda is not available."
         self.device = torch.device(f'cuda:{args.gpu}')
 
-        # prepare the output files.
+        # prepare the output dir.
         os.makedirs(args.out_dir, exist_ok=True)
         with open(os.path.join(args.out_dir, 'args.txt'), 'w') as file:
             file.write(str(args))
-        self.res_file = h5py.File(os.path.join(args.out_dir, 'res.hdf5'), 'w')
 
         # prepare the datasets.
         self.ppi_dataset = get_ppi_dataset(args.ppi_dir)
@@ -115,52 +208,6 @@ class Trainer:
     def main(self):
         self.train_kfold(args)
 
-    def log_loss(self, loss, out_dir, out_prefix=''):
-        log_file = open(os.path.join(out_dir, out_prefix+"loss.log"), 'wt')
-        loss_mean = np.mean(loss)
-        loss_var = np.var(loss)
-        log_file.write(f'mean={loss_mean} var={loss_var}\n')
-
-        # draw and save loss curve
-        loss_x = np.arange(len(loss))
-        fig, ax = plt.subplots()
-        ax.plot(loss_x, loss)
-        fig.savefig(os.path.join(out_dir, out_prefix + "loss.png"), dpi=150)
-        plt.close(fig)
-
-    def log_metrics(self, y_true, y_score, out_dir, out_prefix=''):
-        log_file = open(os.path.join(out_dir, out_prefix+"metrics.log"), 'wt')
-
-        # draw and save ROC curve
-        fpr, tpr, thredsholds = metrics.roc_curve(y_true, y_score)
-        roc_data = {"TPR": tpr, "FPR": fpr}
-        fig, ax = plt.subplots(figsize=(5,5))
-        ax.plot(fpr, tpr)
-        # sns.lineplot(data=roc_data, x="FPR", y="TPR", ax=ax)
-        fig.savefig(os.path.join(out_dir, out_prefix + "roc.png"), dpi=150)
-        plt.close(fig)
-
-        # draw and save PR curve
-        precisions, recalls, thredsholds = metrics.precision_recall_curve(y_true, y_score)
-        fig, ax = plt.subplots(figsize=(5,5))
-        # prc_data = {"Precision": precisions, "Recall": recalls}
-        # sns.lineplot(data=prc_data, x="Recall", y="Precision", ax=ax)
-        ax.plot(recalls, precisions)
-        fig.savefig(os.path.join(out_dir, out_prefix + "prc.png"), dpi=150)
-        plt.close(fig)
-
-        # save log auroc, auprc, precision, recall, f1_score
-        auroc = metrics.auc(fpr, tpr)
-        auprc = metrics.auc(recalls, precisions)
-        precisions = np.array(precisions)
-        recalls = np.array(recalls)
-        f1_scores = 2 * precisions * recalls / (precisions + recalls + 1e-20)
-        idx = np.argmax(f1_scores)
-        precision, recall, f1_scores = precisions[idx], recalls[idx], f1_scores[idx]
-        log_file.write(f"auroc={auroc}, auprc={auprc}, precision={precision}, recall={recall}, f1_scores={f1_scores}\n")
-
-        log_file.close()
-
 
     def train_kfold(self, args):
         random.shuffle(self.ppi_dataset)
@@ -174,34 +221,31 @@ class Trainer:
             train_dataloader = DataLoader(train_task_dataset, shuffle=False, batch_size=args.batch_size, collate_fn=train_task_dataset.collate_fn)
 
             validate_task_dataset = TaskDataset(test_ppi_dataset, self.coord_dataset, self.prottrans_dataset) 
-            validate_dataloader = DataLoader(validate_task_dataset, shuffle=False, batch_size=args.batch_size * 4, collate_fn=train_task_dataset.collate_fn)
+            validate_dataloader = DataLoader(validate_task_dataset, shuffle=False, batch_size=args.batch_size, collate_fn=train_task_dataset.collate_fn)
 
             model = PPITransformer(args.dim_edge_feat, args.dim_vertex_feat, args.dim_hidden).to(self.device)
             
             optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-            # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer, mode='max', patience=5, verbose=True)
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer=optimizer, T_0=200)
+            train_logger = Logger(args.out_dir, fold=fold, prefix='train_')
+            validate_logger = Logger(args.out_dir, fold=fold, prefix='validate_')
+            # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer, mode='max', patience=10, verbose=True)
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer=optimizer, T_0=200, T_mult=2)
 
             for epoch in range(args.epochs):
-                self.train_and_log(model, train_dataloader, optimizer, scheduler, f'{fold}_{epoch}_train_')
-                self.validate_and_log(model, validate_dataloader, out_prefix=f'{fold}_{epoch}_validate_')
-                # scheduler.step(auroc)
+                self.train_and_log(model, train_dataloader, optimizer, scheduler, train_logger, epoch)
+                auroc = self.validate_and_log(model, validate_dataloader, validate_logger, epoch)
+                scheduler.step(auroc)
 
             torch.save(model, os.path.join(args.out_dir, f'{fold}_model.pth'))
 
-    def train_and_log(self, model, dataloader, optimizer, scheduler, out_prefix=''):
+    def train_and_log(self, model, dataloader, optimizer, scheduler, logger:Logger, epoch):
         y_true, y_score, loss = self.train(model, dataloader, optimizer, scheduler)
-        self.log_metrics(y_true, y_score, self.out_dir, out_prefix=out_prefix)
-        self.log_loss(loss, self.out_dir, out_prefix=out_prefix)
-        self.res_file.create_dataset(out_prefix + '_y_true', data=y_true)
-        self.res_file.create_dataset(out_prefix + '_y_score', data=y_score)
-        self.res_file.create_dataset(out_prefix + '_loss', data=loss)
+        logger.step_metrics(epoch, y_true, y_score)
+        logger.step_loss(epoch, loss)
 
-    def validate_and_log(self, model, dataloader, out_prefix):
+    def validate_and_log(self, model, dataloader, logger, epoch):
         y_true, y_score = self.validate(model, dataloader)
-        self.log_metrics(y_true, y_score, args.out_dir, out_prefix=out_prefix)
-        self.res_file.create_dataset(out_prefix + '_y_true', data=y_true)
-        self.res_file.create_dataset(out_prefix + '_y_score', data=y_score)
+        logger.step_metrics(epoch, y_true, y_score)
         auroc = metrics.roc_auc_score(y_true, y_score)
         return auroc
 
@@ -219,9 +263,9 @@ class Trainer:
             protein_length_gpu = protein_length.to(self.device)
             y_true_gpu = y_true.unsqueeze(-1).to(self.device)
 
+            optimizer.zero_grad()
             y_score_gpu = model(vertex_coord_gpu, vertex_feat_gpu, protein_length_gpu)
             loss = loss_func(y_score_gpu, y_true_gpu)
-            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             scheduler.step()
@@ -246,7 +290,6 @@ class Trainer:
         all_y_true, all_y_score = [], []
         progress_bar = tqdm(dataloader)
         for i, (vertex_coord, vertex_feat, protein_length, y_true) in enumerate(progress_bar):
-
             vertex_coord_gpu = vertex_coord.to(self.device)
             vertex_feat_gpu = vertex_feat.to(self.device)
             protein_length_gpu = protein_length.to(self.device)
