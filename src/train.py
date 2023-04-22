@@ -284,8 +284,6 @@ class Trainer:
         all_y_true, all_y_score, all_loss = [], [], []
         loss_avg = 0
         for i, (vertex_coord, vertex_feat, protein_length, y_true) in enumerate(progress_bar):
-            if i > 200:
-                break
             vertex_coord_gpu = vertex_coord.to(self.device)
             vertex_feat_gpu = vertex_feat.to(self.device)
             protein_length_gpu = protein_length.to(self.device)
@@ -318,8 +316,6 @@ class Trainer:
         all_y_true, all_y_score = [], []
         progress_bar = tqdm(dataloader)
         for i, (vertex_coord, vertex_feat, protein_length, y_true) in enumerate(progress_bar):
-            if i > 200:
-                break
             vertex_coord_gpu = vertex_coord.to(self.device)
             vertex_feat_gpu = vertex_feat.to(self.device)
             protein_length_gpu = protein_length.to(self.device)
