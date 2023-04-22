@@ -84,13 +84,12 @@ class TaskDataset(Dataset):
 
 class Logger:
     def __init__(self, out_dir, fold, prefix):
-        self.out_dir = out_dir
-        self.fold = fold
+        self.out_dir = os.path.join(args.out_dir, f'{fold}')
+        os.makedirs(self.out_dir, exist_ok=True)
         self.prefix = prefix
         
-        prefix_fold = prefix + f'{self.fold}_'
-        self.metric_logfile = open(os.path.join(self.out_dir, prefix_fold + 'metrics.log'), 'w')
-        self.resfile = h5py.File(os.path.join(self.out_dir, prefix_fold + 'resfile.hdf5'), 'w')
+        self.metric_logfile = open(os.path.join(self.out_dir, prefix + 'metrics.log'), 'w')
+        self.resfile = h5py.File(os.path.join(self.out_dir, prefix + 'resfile.hdf5'), 'w')
 
         self.auroc = []
         self.auprc = []
@@ -109,23 +108,33 @@ class Logger:
         # sns.histplot(y_score_pos, color='green', kde=True, ax=ax)
         sns.kdeplot(y_score_neg, color='red', ax=ax)
         sns.kdeplot(y_score_pos, color='green', ax=ax)
+        ax.set_ylabel('score')
+        ax.set_xlabel('batch')
 
     def step_metrics(self, epoch, y_true, y_score):
-        prefix_fold = self.prefix + f'{self.fold}_'
-        prefix_fold_epoch = prefix_fold + f'{epoch}_'
+        prefix_epoch = self.prefix + f'{epoch}_'
 
-        self.resfile.create_dataset(prefix_fold_epoch + 'y_true', data=y_true)
-        self.resfile.create_dataset(prefix_fold_epoch + 'y_score', data=y_score)
+        self.resfile.create_dataset(prefix_epoch + 'y_true', data=y_true)
+        self.resfile.create_dataset(prefix_epoch + 'y_score', data=y_score)
 
-        # draw prc roc
         fpr, tpr, thredsholds = metrics.roc_curve(y_true, y_score)
         precisions, recalls, thredsholds = metrics.precision_recall_curve(y_true, y_score)
 
-        fig, axes = plt.subplots(nrows=2, ncols=2)
-        axes[0,0].plot(recalls, precisions)
-        axes[0,1].plot(fpr, tpr)
-        self._draw_distribution(y_true, y_score, ax=axes[1,0])
-        fig.savefig(os.path.join(self.out_dir, prefix_fold_epoch + 'prc_roc_kde.png'), dpi=200)
+        # draw prc roc
+        fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(10, 5), constrained_layout=True)
+        axes[0].plot(recalls, precisions)
+        axes[0].set_xlabel('recall')
+        axes[0].set_ylabel('precision')
+        axes[1].plot(fpr, tpr)
+        axes[1].set_xlabel('FPR')
+        axes[1].set_ylabel('TPR')
+        fig.savefig(os.path.join(self.out_dir, prefix_epoch + 'prc_roc.png'), dpi=200)
+        plt.close(fig)
+
+        # draw kde
+        fig, ax = plt.subplots(figsize=(5,5), constrained_layout=True)
+        self._draw_distribution(y_true, y_score, ax=ax)
+        fig.savefig(os.path.join(self.out_dir, prefix_epoch + 'kde.png'), dpi=200)
         plt.close(fig)
 
         # save log auroc, auprc, precision, recall, f1_score
@@ -137,7 +146,7 @@ class Logger:
         idx = np.argmax(f1_scores)
         precision, recall, f1_scores = precisions[idx], recalls[idx], f1_scores[idx]
 
-        self.metric_logfile.write('[' + prefix_fold_epoch + ']' + f"auroc={auroc}, auprc={auprc}, precision={precision}, recall={recall}, f1_scores={f1_scores}\n")
+        self.metric_logfile.write('[' + prefix_epoch + ']' + f"auroc={auroc}, auprc={auprc}, precision={precision}, recall={recall}, f1_scores={f1_scores}\n")
         self.metric_logfile.flush()
 
         # Update Trend
@@ -147,26 +156,38 @@ class Logger:
         self.recall.append(recall)
         self.f1_score.append(f1_scores)
 
-        fig, axes = plt.subplots(nrows=2, ncols=3)
-        axes[0,0].set_title("AUROC")
-        axes[0,1].set_title("AURPC")
-        axes[0,2].set_title("F1_score")
-        axes[1,0].set_title("Precision")
-        axes[1,1].set_title("Recall")
-        
-        sns.lineplot(self.auroc, ax=axes[0,0])
-        sns.lineplot(self.auprc, ax=axes[0,1])
-        sns.lineplot(self.f1_score, ax=axes[0,2])
-        sns.lineplot(self.precision, ax=axes[1,0])
-        sns.lineplot(self.recall, ax=axes[1,1])
+        # auroc, auprc
+        fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(10, 5), constrained_layout=True)
+        axes[0].set_xlabel('epoch')
+        axes[0].set_ylabel('auroc')
+        sns.lineplot(self.auroc, ax=axes[0])
+        axes[1].set_xlabel('epoch')
+        axes[1].set_ylabel('auprc')
+        sns.lineplot(self.auprc, ax=axes[1])
+        fig.savefig(os.path.join(self.out_dir, self.prefix + 'auroc_auprc.png'), dpi=200)
+        plt.close(fig)
 
-        fig.savefig(os.path.join(self.out_dir, self.prefix + 'metrics.png'), dpi=200)
+        # f1_score, precision, recall
+        fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(15, 5), constrained_layout=True)
+
+        axes[0].set_xlabel('epoch')
+        axes[1].set_xlabel('epoch')
+        axes[2].set_xlabel('epoch')
+        
+        axes[0].set_ylabel('f1 score')
+        axes[1].set_ylabel('precision')
+        axes[2].set_ylabel('recall')
+
+        sns.lineplot(self.f1_score, ax=axes[0])
+        sns.lineplot(self.precision, ax=axes[1])
+        sns.lineplot(self.recall, ax=axes[2])
+
+        fig.savefig(os.path.join(self.out_dir, self.prefix + 'f1-precision-recall.png'), dpi=200)
         plt.close(fig)
 
     def step_loss(self, epoch, loss):
-        prefix_fold = self.prefix + f'{self.fold}_'
-        prefix_fold_epoch = prefix_fold + f'{epoch}_'
-        self.resfile.create_dataset(prefix_fold_epoch + 'loss', data=loss)
+        prefix_epoch = self.prefix + f'{epoch}_'
+        self.resfile.create_dataset(prefix_epoch + 'loss', data=loss)
 
         self.loss += loss
         fig, ax = plt.subplots()
@@ -174,13 +195,18 @@ class Logger:
         loss_var = np.var(loss)
         sns.lineplot(self.loss, ax=ax)
         ax.text(x=10, y=10, s=f"mean={loss_mean}, var={loss_var}")
-        fig.savefig(os.path.join(self.out_dir, prefix_fold + f'loss.png'), dpi=200)
+        ax.set_ylabel('loss')
+        ax.set_xlabel('batch')
+        fig.savefig(os.path.join(self.out_dir, self.prefix + f'loss.png'), dpi=200)
         plt.close(fig)
 
     
 
 class Trainer:
     def __init__(self, args):
+        seed = random.randint(0, 10000)
+        # comment this line out to use the seed specified in command line.
+        args.random_state = seed
         self.seed_everything(args.random_state)
         self.args = args
         self.out_dir = args.out_dir
@@ -225,16 +251,16 @@ class Trainer:
 
             model = PPITransformer(args.dim_edge_feat, args.dim_vertex_feat, args.dim_hidden).to(self.device)
             
-            optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+            # optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+            optimizer = torch.optim.SGD(model.parameters(), lr=args.lr)
             train_logger = Logger(args.out_dir, fold=fold, prefix='train_')
             validate_logger = Logger(args.out_dir, fold=fold, prefix='validate_')
-            # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer, mode='max', patience=10, verbose=True)
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer=optimizer, T_0=200, T_mult=2)
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer=optimizer, T_0=10, T_mult=2)
 
             for epoch in range(args.epochs):
                 self.train_and_log(model, train_dataloader, optimizer, scheduler, train_logger, epoch)
-                auroc = self.validate_and_log(model, validate_dataloader, validate_logger, epoch)
-                scheduler.step(auroc)
+                self.validate_and_log(model, validate_dataloader, validate_logger, epoch)
+                scheduler.step()
 
             torch.save(model, os.path.join(args.out_dir, f'{fold}_model.pth'))
 
@@ -251,13 +277,15 @@ class Trainer:
 
     def train(self, model: torch.nn.Module, dataloader: DataLoader, optimizer:torch.optim.Optimizer, scheduler:torch.optim.lr_scheduler.LRScheduler):
         model.train()
-        loss_func = torch.nn.BCEWithLogitsLoss().to(self.device)
+        loss_func = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10.0], dtype=torch.float32)).to(self.device)
 
         progress_bar = tqdm(dataloader)
         
         all_y_true, all_y_score, all_loss = [], [], []
         loss_avg = 0
         for i, (vertex_coord, vertex_feat, protein_length, y_true) in enumerate(progress_bar):
+            if i > 200:
+                break
             vertex_coord_gpu = vertex_coord.to(self.device)
             vertex_feat_gpu = vertex_feat.to(self.device)
             protein_length_gpu = protein_length.to(self.device)
@@ -290,13 +318,15 @@ class Trainer:
         all_y_true, all_y_score = [], []
         progress_bar = tqdm(dataloader)
         for i, (vertex_coord, vertex_feat, protein_length, y_true) in enumerate(progress_bar):
+            if i > 200:
+                break
             vertex_coord_gpu = vertex_coord.to(self.device)
             vertex_feat_gpu = vertex_feat.to(self.device)
             protein_length_gpu = protein_length.to(self.device)
             
             y_score_gpu = model(vertex_coord_gpu, vertex_feat_gpu, protein_length_gpu)
             
-            y_score = y_score_gpu.detach().cpu()
+            y_score = y_score_gpu.squeeze(-1).detach().cpu()
             all_y_true += list(y_true.numpy())
             all_y_score += list(y_score.numpy())
         
