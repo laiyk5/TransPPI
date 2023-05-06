@@ -5,6 +5,8 @@ import h5py
 import torch
 import numpy as np
 
+import random
+
 # low-level file reading methods.
 
 def read_ppi_file(file, label):
@@ -70,12 +72,14 @@ def ppi_dataset_to_id_dataset(ppi_dataset):
 # High level abstractions
 
 def get_ppi_dataset(ppi_dir):
-    ppi_dataset = []
-    with open(os.path.join(ppi_dir, "pos.txt")) as file:
-        ppi_dataset += read_ppi_file(file, label=1)
+    ppi_dataset_pos = []
+    ppi_dataset_neg = []
     with open(os.path.join(ppi_dir, "neg.txt")) as file:
-        ppi_dataset += read_ppi_file(file, label=0)
-    return ppi_dataset
+        ppi_dataset_neg = read_ppi_file(file, label=0)
+    with open(os.path.join(ppi_dir, "pos.txt")) as file:
+        ppi_dataset_pos = read_ppi_file(file, label=1)
+
+    return ppi_dataset_pos + ppi_dataset_neg
     
 
 def get_seq_dataset(seq_file_path):
