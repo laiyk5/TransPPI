@@ -36,8 +36,16 @@ class Logger:
                         filter(lambda i : y_true[i] == 0, range(len(y_score)))]
         y_score_pos = [y_score[i] for i in 
                         filter(lambda i : y_true[i] == 1, range(len(y_score)))]
-        # sns.histplot(y_score_neg, color='red', kde=True, ax=ax)
-        # sns.histplot(y_score_pos, color='green', kde=True, ax=ax)
+        sns.histplot(y_score_neg, color='red', kde=True, ax=ax)
+        sns.histplot(y_score_pos, color='green', kde=True, ax=ax)
+        ax.set_ylabel('count')
+        ax.set_xlabel('score')
+    
+    def _draw_density(self, y_true, y_score, ax):
+        y_score_neg = [y_score[i] for i in 
+                        filter(lambda i : y_true[i] == 0, range(len(y_score)))]
+        y_score_pos = [y_score[i] for i in 
+                        filter(lambda i : y_true[i] == 1, range(len(y_score)))]
         sns.kdeplot(y_score_neg, color='red', ax=ax)
         sns.kdeplot(y_score_pos, color='green', ax=ax)
         ax.set_ylabel('density')
@@ -65,8 +73,14 @@ class Logger:
 
         # draw kde
         fig, ax = plt.subplots(figsize=(5,5), constrained_layout=True)
-        self._draw_distribution(y_true, y_score, ax=ax)
+        self._draw_density(y_true, y_score, ax=ax)
         fig.savefig(os.path.join(self.out_dir, prefix_epoch + 'kde.png'), dpi=200)
+        plt.close(fig)
+
+        # draw dist
+        fig, ax = plt.subplots(figsize=(5,5), constrained_layout=True)
+        self._draw_distribution(y_true, y_score, ax=ax)
+        fig.savefig(os.path.join(self.out_dir, prefix_epoch + 'dist.png'), dpi=200)
         plt.close(fig)
 
         # save log auroc, auprc, precision, recall, f1_score
@@ -164,8 +178,6 @@ class Trainer:
         skf = StratifiedKFold(n_splits=10, shuffle=False)
         for fold, (train_index, test_index) in enumerate(skf.split(np.zeros(len(self.ppi_dataset_y)), self.ppi_dataset_y)):
             train_ppi_dataset = [dataset[index] for index in train_index]
-            train_ppi_dataset_pos = [item for item in train_ppi_dataset if item[2] == 1]
-            train_ppi_dataset += train_ppi_dataset_pos * 99
             random.shuffle(train_ppi_dataset)
             validate_ppi_dataset = [dataset[index] for index in test_index]
             
@@ -201,7 +213,7 @@ class Trainer:
         auroc = metrics.roc_auc_score(y_true, y_score)
         return auroc
 
-    def __train(self, model: torch.nn.Module, dataloader: DataLoader, optimizer:torch.optim.Optimizer, scheduler:torch.optim.lr_scheduler.LRScheduler):
+    def __train(self, model: torch.nn.Module, dataloader: DataLoader, optimizer:torch.optim.Optimizer, scheduler):
         model.train()
         loss_func = self.factory.new_loss_func().to(self.device)
 
@@ -210,6 +222,8 @@ class Trainer:
         all_y_true, all_y_score, all_loss = [], [], []
         loss_avg = 0
         for i, data in enumerate(progress_bar):
+            torch.cuda.empty_cache()
+
             data_gpu = map(lambda x : x.to(self.device), data[:-1])
             y_true = data[-1]
 

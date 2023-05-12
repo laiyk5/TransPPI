@@ -19,7 +19,7 @@ import sys
 import os
 from datetime import datetime
 import random
-from utils.train import Trainer, Factory
+from utils.train import Trainer, Factory, seed_everything
 
 
 class TaskDataset(Dataset):
@@ -53,7 +53,7 @@ class TaskDataset(Dataset):
             return padded_data
         
 
-        def _pad_batch_protein(data:list[list[torch.Tensor]], target_dim:int):
+        def _pad_batch_protein(data, target_dim:int):
             '''
             [batch,protein,dim] -> tensor[batch,protein,target_dim]
             '''
@@ -129,6 +129,7 @@ def create_arg_parser():
     return parser
 
 def main(args):
+    seed_everything(args.random_state)
     os.makedirs(args.out_dir, exist_ok=False)
     with open(os.path.join(args.out_dir, 'args.txt'), 'wt') as outfile:
         outfile.write('TransPPI\n')

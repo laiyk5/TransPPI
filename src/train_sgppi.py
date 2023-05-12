@@ -15,7 +15,7 @@ import sys
 import os
 from datetime import datetime
 import random
-from utils.train import Trainer, Factory
+from utils.train import Trainer, Factory, seed_everything
 
 import dgl.nn.pytorch as dglnn
 import dgl
@@ -23,6 +23,10 @@ import torch.nn.functional as F
 import torch.nn as nn
 from scipy import sparse as sp
 
+from tqdm import tqdm
+
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 class TaskDataset(Dataset):
     def __init__(self, ppi_dataset, coord_dataset, prottrans_dataset):
@@ -35,26 +39,22 @@ class TaskDataset(Dataset):
         return len(self.ppi_dataset)
     
     def __getitem__(self, key):
-        def get_adj(id, coord):
-            edges = []
-            for i in range(coord.shape[0]):
-                for j in range(coord.shape[0]):
-                    distance = np.sqrt(np.sum(np.power(coord[i] - coord[j], 2)))
-                    if distance < 10:
-                        edges.append([i, j])
-            edges = np.array(edges)
-            adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:,0], edges[:,1])),
-                                shape=(coord.shape[0], coord.shape[0]),
-                                dtype=np.float32)
+        def get_graph(coord):
+            coord = torch.tensor(np.array(coord))
+            coord = coord.unsqueeze(1) - coord.unsqueeze(0)
+            distance = torch.sqrt(torch.sum(torch.pow(coord, 2), dim=-1))
+            adj = (distance < 10)
+            adj = sp.coo_matrix(adj)
+
             missing = adj.T > adj
             adj = adj + adj.T * missing - adj * missing
-            return adj
+            g = dgl.from_scipy(adj)
+            return g
         
         def get_item(id, coords, feats):
-            adj = get_adj(id, coords[id])
-            g = dgl.DGLGraph(adj)
+            g = get_graph(coords[id])
             feat = feats[id]
-            g.ndata['fea'] = feat
+            g.ndata['fea'] = torch.tensor(np.array(feat), dtype=torch.float32)
             return g
         
         id1, id2, label = self.ppi_dataset[key]
@@ -74,7 +74,7 @@ class MyGCN(nn.Module):
         self.out2 = dglnn.GraphConv(nhid, nhid)
         self.l1 = nn.Linear(nhid, 512)
         self.l2 = nn.Linear(512, 128)
-        self.l3 = nn.Linear(128, 2)
+        self.l3 = nn.Linear(128, 1)
 
     def forward(self, x1, x2):
         fea1 = x1.ndata['fea']
@@ -91,7 +91,7 @@ class MyGCN(nn.Module):
         l1 = self.l1(hg)
         l2 = self.l2(l1)
         l3 = self.l3(l2)
-        return l1, l3
+        return l3
 
 
 class SGPPIFactory(Factory):
@@ -110,7 +110,7 @@ class SGPPIFactory(Factory):
     
     def new_dataloader(self, ppi_dataset):
         task_dataset = TaskDataset(ppi_dataset, self.coord_dataset, self.prottrans_dataset)
-        dataloader = DataLoader(task_dataset, shuffle=False, batch_size=self.args.batch_size, collate_fn=task_dataset.collate_fn)
+        dataloader = DataLoader(task_dataset, shuffle=False, batch_size=self.args.batch_size, collate_fn=task_dataset.collate_fn, num_workers=4)
         return dataloader
     
     def new_loss_func(self):
@@ -118,48 +118,85 @@ class SGPPIFactory(Factory):
 
 
 def create_arg_parser():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(prog='train_sgppi', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    parser.add_argument('--nfeat', type=int, default=1024)
-    parser.add_argument('--nhid', type=int, default=512)
-    parser.add_argument('--dropout', type=int, default=0.1)
+    parser.add_argument('--nfeat', type=int, default=1024, help='number of the dimentions of the features.')
+    parser.add_argument('--nhid', type=int, default=512, help='number of the hidden dimension of the modoel.')
+    parser.add_argument('--dropout', type=int, default=0.1, help='rate of dropout.')
 
-    parser.add_argument('--ppi_dir', default='data/ppi/Pans')
-    parser.add_argument('--coord', default='data/coord.hdf5')
-    parser.add_argument('--prottrans', default='data/prottrans.hdf5')
+    parser.add_argument('--ppi_dir', default='data/ppi/Pans', help='the path of the ppi directory.')
+    parser.add_argument('--coord', default='data/coord.hdf5', help='the path of the coord.hdf5 file.')
+    parser.add_argument('--prottrans', default='data/prottrans.hdf5', help='the path of the prottrans.hdf5 file')
     
-    parser.add_argument('--random_state', default=2023)
-    parser.add_argument('--batch_size', type=int, default=16)
-    parser.add_argument('--epochs', type=int, default=50)
-    parser.add_argument('--lr', type=float, default=5e-4)
+    parser.add_argument('--random_state', default=2023, help='random state to regenerate the result.')
+    parser.add_argument('--batch_size', type=int, default=4, help='batch size')
+    parser.add_argument('--epochs', type=int, default=50, help='epochs for each fold.')
+    parser.add_argument('--lr', type=float, default=5e-4, help='learning rate.')
 
-    parser.add_argument('--out_dir', default=os.path.join('out', 'train_sgppi', datetime.now().strftime("%y-%m-%d-%H-%M") ))
+    parser.add_argument('--out_dir', default=os.path.join('out', 'train_sgppi', datetime.now().strftime("%y-%m-%d-%H-%M") ), help='the directory to save outputs.')
 
-    parser.add_argument('--gpu', type=int, default=0)
+    parser.add_argument('--gpu', type=int, default=0, help='the id of gpu to run.')
 
     return parser
 
 
+def draw_adj(ppi_dataset, out_dir):
+    os.makedirs(out_dir, exist_ok=True)
+    coord_dataset = h5py.File(args.coord)
+    ids = []
+    for ppi in ppi_dataset:
+        ids.append(ppi[0])
+        ids.append(ppi[1])
+
+    for id in tqdm(ids, desc="draw adj"):
+        coord = torch.tensor(np.array(coord_dataset[id]))
+        coord = coord.unsqueeze(1) - coord.unsqueeze(0)
+        distance = torch.sqrt(torch.sum(torch.pow(coord, 2), dim=-1))
+        adj = (distance < 10)
+        fig, ax = plt.subplots()
+        sns.heatmap(data=adj, ax=ax)
+        fig.savefig(os.path.join(out_dir, f'{id}.png'))
+    
+
 def main(args):
+    seed_everything(args.random_state)
     os.makedirs(args.out_dir, exist_ok=True)
     with open(os.path.join(args.out_dir, 'args.txt'), 'wt') as outfile:
         outfile.write('SGPPI\n')
         outfile.write(str(args))
 
     ppi_dataset = get_ppi_dataset(args.ppi_dir)
+    ppi_dataset_pos = [item for item in tqdm(ppi_dataset) if item[2] == 1]
+    ppi_dataset += ppi_dataset_pos * 99
+    random.shuffle(ppi_dataset)
+    ppi_dataset = ppi_dataset[:5000]
 
-    idx_pos = []
-    idx_neg = []
-    for i in range(len(ppi_dataset)):
-        if ppi_dataset[i][2] == 1:
-            idx_pos.append(i)
-        else:
-            idx_neg.append(i)
-    ppi_dataset_new = []
-    idx = idx_pos[:10] + idx_neg[:1000]
-    for i in idx:
-        ppi_dataset_new.append(ppi_dataset[i])
-    ppi_dataset = ppi_dataset_new
+    draw_adj(ppi_dataset, os.path.join(args.out_dir, 'adj'))
+
+    # coord_dataset = h5py.File(args.coord)
+
+    # ppi_dataset_new = []
+    # for ppi in tqdm(ppi_dataset):
+    #     id1, id2, label = ppi
+    #     if np.array(coord_dataset[id1]).shape[0] > 500:
+    #         continue
+    #     if np.array(coord_dataset[id2]).shape[0] > 500:
+    #         continue
+    #     ppi_dataset_new.append((id1, id2, label))
+    # ppi_dataset = ppi_dataset_new
+        
+    # idx_pos = []
+    # idx_neg = []
+    # for i in range(len(ppi_dataset)):
+    #     if ppi_dataset[i][2] == 1:
+    #         idx_pos.append(i)
+    #     else:
+    #         idx_neg.append(i)
+    # ppi_dataset_new = []
+    # idx = idx_pos[:10] + idx_neg[:1000]
+    # for i in idx:
+    #     ppi_dataset_new.append(ppi_dataset[i])
+    # ppi_dataset = ppi_dataset_new
 
     factory = SGPPIFactory(args)
 

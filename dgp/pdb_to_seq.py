@@ -1,5 +1,5 @@
 import re
-from utils.load_data import *
+from load_data import *
 from tqdm import tqdm
 
 def read_seq_from_pdb_file(file):    
