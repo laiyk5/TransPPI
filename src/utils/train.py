@@ -177,6 +177,17 @@ class Trainer:
         self.ppi_dataset_y = [label for _, _, label in dataset]
         skf = StratifiedKFold(n_splits=10, shuffle=False)
         for fold, (train_index, test_index) in enumerate(skf.split(np.zeros(len(self.ppi_dataset_y)), self.ppi_dataset_y)):
+            def up_sample_pos(idx):
+                pos_idx = [i for i in idx if dataset[i][2] == 1]
+                neg_idx = [i for i in idx if dataset[i][2] == 0]
+                len_pos = len(pos_idx)
+                len_neg = len(neg_idx)
+                pos_sampled_idx = random.choices(pos_idx, k=len_neg - len_pos)
+                sampled_idx = list(idx) + pos_sampled_idx
+                return sampled_idx
+            
+            train_index = up_sample_pos(train_index)
+
             train_ppi_dataset = [dataset[index] for index in train_index]
             random.shuffle(train_ppi_dataset)
             validate_ppi_dataset = [dataset[index] for index in test_index]

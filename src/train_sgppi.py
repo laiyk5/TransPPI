@@ -110,7 +110,7 @@ class SGPPIFactory(Factory):
     
     def new_dataloader(self, ppi_dataset):
         task_dataset = TaskDataset(ppi_dataset, self.coord_dataset, self.prottrans_dataset)
-        dataloader = DataLoader(task_dataset, shuffle=False, batch_size=self.args.batch_size, collate_fn=task_dataset.collate_fn, num_workers=4)
+        dataloader = DataLoader(task_dataset, shuffle=False, batch_size=self.args.batch_size, collate_fn=task_dataset.collate_fn)
         return dataloader
     
     def new_loss_func(self):
@@ -140,24 +140,6 @@ def create_arg_parser():
     return parser
 
 
-def draw_adj(ppi_dataset, out_dir):
-    os.makedirs(out_dir, exist_ok=True)
-    coord_dataset = h5py.File(args.coord)
-    ids = []
-    for ppi in ppi_dataset:
-        ids.append(ppi[0])
-        ids.append(ppi[1])
-
-    for id in tqdm(ids, desc="draw adj"):
-        coord = torch.tensor(np.array(coord_dataset[id]))
-        coord = coord.unsqueeze(1) - coord.unsqueeze(0)
-        distance = torch.sqrt(torch.sum(torch.pow(coord, 2), dim=-1))
-        adj = (distance < 10)
-        fig, ax = plt.subplots()
-        sns.heatmap(data=adj, ax=ax)
-        fig.savefig(os.path.join(out_dir, f'{id}.png'))
-    
-
 def main(args):
     seed_everything(args.random_state)
     os.makedirs(args.out_dir, exist_ok=True)
@@ -166,13 +148,7 @@ def main(args):
         outfile.write(str(args))
 
     ppi_dataset = get_ppi_dataset(args.ppi_dir)
-    ppi_dataset_pos = [item for item in tqdm(ppi_dataset) if item[2] == 1]
-    ppi_dataset += ppi_dataset_pos * 99
-    random.shuffle(ppi_dataset)
-    ppi_dataset = ppi_dataset[:5000]
-
-    draw_adj(ppi_dataset, os.path.join(args.out_dir, 'adj'))
-
+    
     # coord_dataset = h5py.File(args.coord)
 
     # ppi_dataset_new = []

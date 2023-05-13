@@ -122,7 +122,7 @@ def create_arg_parser():
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--lr', type=float, default=5e-4)
 
-    parser.add_argument('--out_dir', default=os.path.join('out', 'train', datetime.now().strftime("%y-%m-%d-%H-%M") ))
+    parser.add_argument('--out_dir', default=os.path.join('out', 'train_transppi', datetime.now().strftime("%y-%m-%d-%H-%M") ))
 
     parser.add_argument('--gpu', type=int, default=0)
 

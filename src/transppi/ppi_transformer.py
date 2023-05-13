@@ -6,7 +6,7 @@ from .misc import gather_nodes
 
 class ProteinEncoder(nn.Module):
     '''
-    Encode proteins represented by (vertex_coord, vertex_feat, len)
+    Encode proteins represented by (..., vertex_coord, vertex_feat, len)
     '''
     def __init__(self, dim_edge_feat, dim_vertex_feat, dim_hidden):
         super().__init__()
@@ -60,12 +60,12 @@ class PPITransformer(nn.Module):
             vertex_feats: [..., protein, dim_vertex, dim_vertex_feat]
             protein_length: [..., protein, 1]
         Return:
-            Prediction of PPI. [..., 2]
+            Prediction of PPI. [..., 1]
         '''
 
         protein_code = self.protein_encoder(vertex_coords, vertex_feats, protein_length)    
         
-        fuse_code = protein_code.prod(dim=-2) # [..., dim_hidden]
+        fuse_code = protein_code.prod(dim=-2) # [..., protein, dim_hidden]
 
         hidden_1 = self.out_layer1(fuse_code)
         out = self.out_layer2(hidden_1)
