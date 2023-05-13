@@ -1,20 +1,14 @@
-from transppi.ppi_transformer import PPITransformer
-from utils import check_data_integrity
 from utils.load_data import get_ppi_dataset
 
 import torch
 from torch.utils.data import DataLoader, Dataset
-from sklearn.model_selection import StratifiedKFold
-from sklearn import metrics
 import numpy as np
 
 import h5py
 
 import argparse
-import sys
 import os
 from datetime import datetime
-import random
 from utils.train import Trainer, Factory, seed_everything
 
 import dgl.nn.pytorch as dglnn
@@ -22,11 +16,6 @@ import dgl
 import torch.nn.functional as F
 import torch.nn as nn
 from scipy import sparse as sp
-
-from tqdm import tqdm
-
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 class TaskDataset(Dataset):
     def __init__(self, ppi_dataset, coord_dataset, prottrans_dataset):
@@ -148,7 +137,7 @@ def main(args):
         outfile.write(str(args))
 
     ppi_dataset = get_ppi_dataset(args.ppi_dir)
-    
+
     # coord_dataset = h5py.File(args.coord)
 
     # ppi_dataset_new = []

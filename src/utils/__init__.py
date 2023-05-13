@@ -1,5 +1,4 @@
 from .load_data import *
-from .logs import *
 
 def check_data_integrity(ppi_dataset, coord_dataset, node_feat_dataset):
     id_dataset = ppi_dataset_to_id_dataset(ppi_dataset)

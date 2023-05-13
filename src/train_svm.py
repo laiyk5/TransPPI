@@ -3,13 +3,11 @@ from sklearn.model_selection import StratifiedKFold
 
 from utils.load_data import get_ppi_dataset
 
-from utils.train import down_sample_neg, augment_pos
-
 import numpy as np
 from argparse import ArgumentParser
 import h5py
 
-from utils.train import Logger
+from utils.logger import Logger
 
 from tqdm import tqdm
 
@@ -29,12 +27,6 @@ def create_parser():
     parser.add_argument('--out', default=os.path.join('out', 'train_svm', datetime.now().strftime("%y-%m-%d-%H-%M") ))
     return parser
 
-def augment_pos(ppi_dataset):
-    pos_idx = [i for i in range(0, len(ppi_dataset)) if ppi_dataset[i][2] == 1]
-    neg_length = len(ppi_dataset) - len(pos_idx)
-    pos_idx_aug = random.choices(pos_idx, k=neg_length - len(pos_idx))
-    pos_aug = [ppi_dataset[i] for i in pos_idx_aug]
-    return pos_aug + ppi_dataset
 
 def main(args):
     os.makedirs(args.out, exist_ok=True)

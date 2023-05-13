@@ -11,6 +11,10 @@ parser.add_argument('--pdb_dir', default='out/pdb')
 parser.add_argument('--prottrans_path', default='out/prottrans-1500.hdf5')
 args = parser.parse_args()
 
+def short_repr(string: str, target_length=10):
+    if (len(string) <= target_length):
+        return string
+    return f'{string[:target_length]}...({len(string) - target_length} left)'
 
 print(f"# Constructing PPI dataset from {args.ppi_dir}")
 ppi_dataset = get_ppi_dataset(args.ppi_dir)

@@ -1,24 +1,15 @@
 from transppi.ppi_transformer import PPITransformer
-from utils import check_data_integrity
 from utils.load_data import get_ppi_dataset
 
 import torch
 from torch.utils.data import DataLoader, Dataset
-from sklearn.model_selection import StratifiedKFold
-from sklearn import metrics
 import numpy as np
-
-from tqdm import tqdm
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 import h5py
 
 import argparse
-import sys
 import os
 from datetime import datetime
-import random
 from utils.train import Trainer, Factory, seed_everything
 
 
@@ -91,10 +82,10 @@ class TransPPIFactory(Factory):
 
     def new_model_scheduler_optimizer(self):
         model = PPITransformer(self.args.dim_edge_feat, self.args.dim_vertex_feat, self.args.dim_hidden)
-        # optimizer = torch.optim.SGD(model.parameters(), lr=self.args.lr)
-        optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr)
-        # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer=optimizer, T_0=10, T_mult=2)
-        scheduler = None
+        # optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr)
+        # scheduler = None
+        optimizer = torch.optim.SGD(model.parameters(), lr=self.args.lr)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer=optimizer, T_0=10, T_mult=2)
         return model, optimizer, scheduler
     
     def new_dataloader(self, ppi_dataset):
@@ -111,14 +102,14 @@ def create_arg_parser():
 
     parser.add_argument('--dim_vertex_feat', type=int, default=1024)
     parser.add_argument('--dim_edge_feat', type=int, default=64)
-    parser.add_argument('--dim_hidden', type=int, default=128)
+    parser.add_argument('--dim_hidden', type=int, default=64)
 
     parser.add_argument('--ppi_dir', default='data/ppi/Pans')
     parser.add_argument('--coord', default='data/coord.hdf5')
-    parser.add_argument('--prottrans', default='data/prottrans.hdf5')
+    parser.add_argument('--prottrans', default='dgp/out/prottrans_normed.hdf5')
     
     parser.add_argument('--random_state', default=2023)
-    parser.add_argument('--batch_size', type=int, default=6)
+    parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--lr', type=float, default=5e-4)
 
@@ -130,7 +121,7 @@ def create_arg_parser():
 
 def main(args):
     seed_everything(args.random_state)
-    os.makedirs(args.out_dir, exist_ok=False)
+    os.makedirs(args.out_dir, exist_ok=True)
     with open(os.path.join(args.out_dir, 'args.txt'), 'wt') as outfile:
         outfile.write('TransPPI\n')
         outfile.write(str(args))
