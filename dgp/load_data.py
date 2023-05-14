@@ -88,38 +88,3 @@ def get_seq_dataset(seq_file_path):
     file.close()
     return seq_dataset
 
-
-class CoordDataset:
-    '''
-    We don't load the whole dataset into the memory
-    because It's both time and memory consuming.
-    '''
-    def __init__(self, pdb_dir):
-        self.pdb_dir = pdb_dir
-        
-    def get(self, id):
-        path = os.path.join(self.pdb_dir, f'{id}.pdb')
-        with open(path) as file:
-            coords = read_coordinates_from_pdb_file(file)
-        return torch.tensor(coords)
-     
-    def keys(self):
-        filenames = os.listdir(self.pdb_dir)
-        id_pattern = re.compile(r'^(?P<id>[A-Z0-9]+)\.pdb')
-        id_dataset = set()
-        for filename in filenames:
-            m = id_pattern.search(filename)
-            if m is not None:
-                id_dataset.add(m['id'])
-        return id_dataset
-
-
-class ProtTransDataset:
-    def __init__(self, prottrans_path: str):
-        self.f = h5py.File(prottrans_path, 'r')
-    
-    def get(self, key):
-        return torch.tensor(np.array(self.f[key]))
-
-    def keys(self):
-        return set(self.f.keys())

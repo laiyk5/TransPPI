@@ -1,6 +1,5 @@
 
 import torch
-from torch.utils.data import DataLoader
 from sklearn.model_selection import StratifiedKFold
 from sklearn import metrics
 import numpy as np
@@ -103,28 +102,26 @@ class Trainer:
 
             optimizer.zero_grad()
             y_score_gpu = model(*data_gpu)
-            loss = loss_func(y_score_gpu, y_true_gpu)
-            # print('loss.grad')
-            # print(loss.grad)
-            loss.backward()
-            # print('loss.grad')
-            # print(loss.grad)
-            # sys.stdout.flush()
+            loss_gpu = loss_func(y_score_gpu, y_true_gpu)
+            loss_gpu.backward()
             optimizer.step()
 
+            # logging
+
+            loss_cpu = loss_gpu.detach().cpu()
             # store the raw data.
-            y_score = y_score_gpu.squeeze(-1).detach().cpu()
+            y_score_cpu = y_score_gpu.squeeze(-1).detach().cpu()
             all_y_true += list(y_true.numpy())
-            all_y_score += list(y_score.numpy())
-            all_loss.append(float(loss.cpu()))
+            all_y_score += list(y_score_cpu.numpy())
+            all_loss.append(float(loss_cpu))
             if scheduler is not None:
                 scheduler.step(epoch * batch_size + i)
                 all_lr += scheduler.get_last_lr()
                 # scheduler.step(epoch + i/batch_size)
 
             # update description of progress bar.
-            loss_avg = (loss_avg * i + loss) / (i+1)
-            progress_bar.set_description(f"loss: {loss}, loss_avg: {loss_avg}")
+            loss_avg = (loss_avg * i + loss_cpu) / (i+1)
+            progress_bar.set_description(f"loss: {loss_cpu}, loss_avg: {loss_avg}")
 
             if i % 10 == 9:
                 logger.append_loss(all_loss)
