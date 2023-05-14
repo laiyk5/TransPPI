@@ -91,8 +91,8 @@ class SGPPIFactory(Factory):
         self.coord_dataset = h5py.File(args.coord)
         self.prottrans_dataset = h5py.File(args.prottrans)
 
-    def new_model_scheduler_optimizer(self):
-        model = MyGCN(self.args.nfeat, self.args.nhid, self.args.dropout)
+    def new_model_scheduler_optimizer(self, device):
+        model = MyGCN(self.args.nfeat, self.args.nhid, self.args.dropout).to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr)
         scheduler = None
         return model, optimizer, scheduler

@@ -80,8 +80,8 @@ class TransPPIFactory(Factory):
         self.coord_dataset = h5py.File(args.coord)
         self.prottrans_dataset = h5py.File(args.prottrans)
 
-    def new_model_scheduler_optimizer(self):
-        model = PPITransformer(self.args.dim_edge_feat, self.args.dim_vertex_feat, self.args.dim_hidden)
+    def new_model_scheduler_optimizer(self, device):
+        model = PPITransformer(self.args.dim_edge_feat, self.args.dim_vertex_feat, self.args.dim_hidden).to(device)
         # optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr)
         # scheduler = None
         optimizer = torch.optim.SGD(model.parameters(), lr=self.args.lr)

@@ -8,12 +8,13 @@ import numpy as np
 from tqdm import tqdm
 
 import os
+import sys
 import random
 
 from .logger import Logger
 
 class Factory:
-    def new_model_scheduler_optimizer(self):
+    def new_model_scheduler_optimizer(self, device):
         raise NotImplementedError
 
     def new_dataloader(self):
@@ -52,7 +53,7 @@ class Trainer:
                 return sampled_idx
             
             train_index = up_sample_pos(train_index)
-            # train_index = random.sample(train_index, 50)
+            # train_index = random.sample(train_index, 30000)
             # validation_index = random.sample(list(validation_index), 300)
 
             random.shuffle(train_index)
@@ -67,8 +68,7 @@ class Trainer:
 
 
     def __train_fold(self, fold, train_dataloader, validate_dataloader):
-        model, optimizer, scheduler = self.factory.new_model_scheduler_optimizer()
-        model = model.to(self.device)
+        model, optimizer, scheduler = self.factory.new_model_scheduler_optimizer(self.device)
     
         train_logger = Logger(self.out_dir, fold=fold, prefix='train_')
         validate_logger = Logger(self.out_dir, fold=fold, prefix='validate_')
@@ -83,7 +83,7 @@ class Trainer:
             torch.save(model, os.path.join(model_path, f'{fold}_{epoch}_model.pth'))
 
 
-    def __train_and_log(self, model, dataloader, optimizer, scheduler:torch.optim.lr_scheduler.LRScheduler, logger:Logger, epoch):
+    def __train_and_log(self, model, dataloader, optimizer, scheduler, logger:Logger, epoch):
         model.train()
         loss_func = self.factory.new_loss_func().to(self.device)
 
@@ -104,9 +104,14 @@ class Trainer:
             optimizer.zero_grad()
             y_score_gpu = model(*data_gpu)
             loss = loss_func(y_score_gpu, y_true_gpu)
+            # print('loss.grad')
+            # print(loss.grad)
             loss.backward()
+            # print('loss.grad')
+            # print(loss.grad)
+            # sys.stdout.flush()
             optimizer.step()
-            
+
             # store the raw data.
             y_score = y_score_gpu.squeeze(-1).detach().cpu()
             all_y_true += list(y_true.numpy())
