@@ -84,13 +84,22 @@ class TransPPIFactory(Factory):
         model = PPITransformer(self.args.dim_edge_feat, self.args.dim_vertex_feat, self.args.dim_hidden).to(device)
         # optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr)
         # scheduler = None
-        optimizer = torch.optim.SGD(model.parameters(), lr=self.args.lr)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer=optimizer, T_0=10, T_mult=2)
+        
+        # optimizer = torch.optim.SGD(model.parameters(), lr=self.args.lr)
+        # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer=optimizer, T_0=10, T_mult=2)
+
+        # WARMUP = 1
+        # optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr)
+        # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=(lambda e : (e+1)**(-0.5) * min((e+1) ** (-0.5), (e+1) * WARMUP**(-1.5))))
+
+        optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr, betas=(0.9, 0.98), eps=1e-9)
+        scheduler = None
+
         return model, optimizer, scheduler
     
     def new_dataloader(self, ppi_dataset):
         task_dataset = TaskDataset(ppi_dataset, self.coord_dataset, self.prottrans_dataset)
-        dataloader = DataLoader(task_dataset, shuffle=False, batch_size=self.args.batch_size, collate_fn=task_dataset.collate_fn)
+        dataloader = DataLoader(task_dataset, shuffle=True, batch_size=self.args.batch_size, collate_fn=task_dataset.collate_fn)
         return dataloader
     
     def new_loss_func(self):
@@ -110,8 +119,8 @@ def create_arg_parser():
     
     parser.add_argument('--random_state', default=2023)
     parser.add_argument('--batch_size', type=int, default=4)
-    parser.add_argument('--epochs', type=int, default=50)
-    parser.add_argument('--lr', type=float, default=5e-4)
+    parser.add_argument('--epochs', type=int, default=100)
+    parser.add_argument('--lr', type=float, default=9e-5)
 
     parser.add_argument('--out_dir', default=os.path.join('out', 'train_transppi', datetime.now().strftime("%y-%m-%d-%H-%M") ))
 

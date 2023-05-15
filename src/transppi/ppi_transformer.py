@@ -13,7 +13,7 @@ class ProteinEncoder(nn.Module):
         self.edge_encoder = EdgeEncoder(dim_edge_feat)
         self.edge_linear = nn.Linear(dim_edge_feat, dim_hidden)
         self.vertex_linear = nn.Linear(dim_vertex_feat, dim_hidden)
-        self.graph_transforemer_encoder = GraphTransformerEncoder(dim_hidden)
+        self.graph_transforemer_encoder = GraphTransformerEncoder(dim_hidden, num_layer=2)
 
     def forward(self, vertex_coord, vertex_feat, protein_length):
         '''
