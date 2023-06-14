@@ -1,0 +1,5 @@
+{
+  "dim_vertex_feat": 1024,
+  "dim_edge_feat": 64,
+  "dim_hidden": 64
+}

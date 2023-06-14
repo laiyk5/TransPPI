@@ -1,0 +1,6 @@
+{
+  "random_state": 2023,
+  "batch_size": 4,
+  "epochs": 1,
+  "lr": 9e-5
+}
